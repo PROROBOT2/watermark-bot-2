@@ -144,6 +144,8 @@ def start_health_server():
 
 def main():
     start_health_server()
+    # Python 3.14 mein event loop khud nahi banta, isliye pehle bana do
+    asyncio.set_event_loop(asyncio.new_event_loop())
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
