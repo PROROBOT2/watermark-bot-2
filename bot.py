@@ -16,7 +16,9 @@ log = logging.getLogger("wmbot")
 # ================================================================ CONFIG (env se badal sakte ho)
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 WM_FILE = os.getenv("WATERMARK_FILE", "watermark.png")      # logo (PNG, transparent best). Na mile to text use hoga
-WM_TEXT = os.getenv("WATERMARK_TEXT", "@YourChannel")       # text watermark
+WM_TEXT = os.getenv("WATERMARK_TEXT")                       # text (logo ke upar). Logo ho aur ye khali ho to sirf logo
+TEXT_RATIO = float(os.getenv("WATERMARK_TEXT_RATIO", "0.85"))  # text ki chaudai = logo ki chaudai ka itna hissa
+GAP = float(os.getenv("WATERMARK_GAP", "0.04"))             # text aur logo ke beech ki jagah
 POSITION = os.getenv("WATERMARK_POS", "bottom-right")       # top-left | top-right | bottom-left | bottom-right
 SCALE = float(os.getenv("WATERMARK_SCALE", "0.22"))         # watermark ki chaudai = image ki chaudai ka itna hissa
 OPACITY = float(os.getenv("WATERMARK_OPACITY", "0.85"))     # 0.1 (halka) se 1.0 (poora saaf)
@@ -39,13 +41,34 @@ def text_mark(text):
     return img
 
 
-def load_mark():
-    if os.path.exists(WM_FILE):
-        return Image.open(WM_FILE).convert("RGBA")
-    return text_mark(WM_TEXT)
+def build_mark():
+    """Text upar, uske neeche logo. Sirf logo ya sirf text bhi chalega."""
+    logo = Image.open(WM_FILE).convert("RGBA") if os.path.exists(WM_FILE) else None
+    text = WM_TEXT if WM_TEXT is not None else ("" if logo else "@YourChannel")
+    text = text.strip()
+    if not text:
+        return logo if logo else text_mark("@YourChannel")
+    t = text_mark(text)
+    if not logo:
+        return t
+
+    W = 600
+    logo = logo.resize((W, max(1, int(logo.height * W / logo.width))), Image.LANCZOS)
+    tw = int(W * TEXT_RATIO)
+    th = int(t.height * tw / t.width)
+    cap = int(W * 0.22)                      # bahut chhota text ho to bahut bada na dikhe
+    if th > cap:
+        tw, th = int(tw * cap / th), cap
+    t = t.resize((max(1, tw), max(1, th)), Image.LANCZOS)
+    gap = int(W * GAP)
+
+    canvas = Image.new("RGBA", (W, th + gap + logo.height), (0, 0, 0, 0))
+    canvas.alpha_composite(t, ((W - t.width) // 2, 0))
+    canvas.alpha_composite(logo, (0, th + gap))
+    return canvas
 
 
-BASE_MARK = load_mark()
+BASE_MARK = build_mark()
 
 
 def apply_watermark(data: bytes):
