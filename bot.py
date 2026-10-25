@@ -1,4 +1,5 @@
-"""Watermark bot: koi bhi image bhejo, fixed corner mein watermark laga ke wapas milegi."""
+"""Watermark bot (simple): image bhejo -> corner mein text (upar) + logo (neeche) lagke wapas.
+Logo = repo mein watermark.png, text = Render ke Environment mein WATERMARK_TEXT."""
 import asyncio
 import io
 import logging
@@ -6,37 +7,55 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 log = logging.getLogger("wmbot")
 
-# ================================================================ CONFIG (env se badal sakte ho)
+# ================================================================ CONFIG (Render Environment se)
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-WM_FILE = os.getenv("WATERMARK_FILE", "watermark.png")      # logo (PNG, transparent best). Na mile to text use hoga
-WM_TEXT = os.getenv("WATERMARK_TEXT")                       # text (logo ke upar). Logo ho aur ye khali ho to sirf logo
-TEXT_RATIO = float(os.getenv("WATERMARK_TEXT_RATIO", "0.85"))  # text ki chaudai = logo ki chaudai ka itna hissa
-GAP = float(os.getenv("WATERMARK_GAP", "0.04"))             # text aur logo ke beech ki jagah
+WM_FILE = os.getenv("WATERMARK_FILE", "watermark.png")      # logo (repo mein, PNG transparent best)
+WM_TEXT = os.getenv("WATERMARK_TEXT")                       # text jo logo ke upar aayega
 POSITION = os.getenv("WATERMARK_POS", "bottom-right")       # top-left | top-right | bottom-left | bottom-right
-SCALE = float(os.getenv("WATERMARK_SCALE", "0.22"))         # watermark ki chaudai = image ki chaudai ka itna hissa
-OPACITY = float(os.getenv("WATERMARK_OPACITY", "0.85"))     # 0.1 (halka) se 1.0 (poora saaf)
-MARGIN = float(os.getenv("WATERMARK_MARGIN", "0.02"))       # kone se doori (image ki chaudai ka hissa)
+SCALE = float(os.getenv("WATERMARK_SCALE", "0.22"))         # watermark ki chaudai (image ki chaudai ka hissa)
+OPACITY = float(os.getenv("WATERMARK_OPACITY", "0.85"))     # 0.1 halka ... 1.0 poora saaf
+MARGIN = float(os.getenv("WATERMARK_MARGIN", "0.02"))       # kone se doori
+TEXT_RATIO = float(os.getenv("WATERMARK_TEXT_RATIO", "0.85"))
+GAP = float(os.getenv("WATERMARK_GAP", "0.04"))
+FONT_FILE = os.getenv("WATERMARK_FONT")                     # repo mein .ttf/.otf font file ka naam, jaise Poppins-Bold.ttf
+TEXT_COLOR = os.getenv("WATERMARK_TEXT_COLOR", "#FFFFFF")   # text ka rang (hex ya naam)
+STROKE_COLOR = os.getenv("WATERMARK_STROKE_COLOR", "#000000")  # text ke outline ka rang
+STROKE = int(os.getenv("WATERMARK_STROKE", "5"))            # outline ki motai (0 = bina outline)
 ALLOWED = {int(x) for x in os.getenv("ALLOWED_USERS", "").replace(",", " ").split() if x.isdigit()}
-# ALLOWED_USERS khali = sab use kar sakte hain. Sirf apne liye chahiye to apna Telegram ID daalo.
+# ALLOWED_USERS khali = sab use kar sakte hain
 
 
 # ================================================================ WATERMARK
+def get_font(size=120):
+    if FONT_FILE:
+        if os.path.exists(FONT_FILE):
+            try:
+                return ImageFont.truetype(FONT_FILE, size)
+            except Exception as e:
+                log.warning("Font load nahi hua (%s): %s. Default font use ho raha hai.", FONT_FILE, e)
+        else:
+            log.warning("Font file nahi mili: %s (repo mein upload karo). Default font use ho raha hai.", FONT_FILE)
+    return ImageFont.load_default(size=size)
+
+
 def text_mark(text):
-    font = ImageFont.load_default(size=120)
+    font = get_font(120)
+    fill = ImageColor.getrgb(TEXT_COLOR) + (255,)
+    stroke_fill = ImageColor.getrgb(STROKE_COLOR) + (255,)
     probe = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
-    box = probe.textbbox((0, 0), text, font=font, stroke_width=5)
+    box = probe.textbbox((0, 0), text, font=font, stroke_width=STROKE)
     w, h = box[2] - box[0], box[3] - box[1]
     img = Image.new("RGBA", (w + 24, h + 24), (0, 0, 0, 0))
     ImageDraw.Draw(img).text(
         (12 - box[0], 12 - box[1]), text, font=font,
-        fill=(255, 255, 255, 255), stroke_width=5, stroke_fill=(0, 0, 0, 255),
+        fill=fill, stroke_width=STROKE, stroke_fill=stroke_fill,
     )
     return img
 
@@ -56,7 +75,7 @@ def build_mark():
     logo = logo.resize((W, max(1, int(logo.height * W / logo.width))), Image.LANCZOS)
     tw = int(W * TEXT_RATIO)
     th = int(t.height * tw / t.width)
-    cap = int(W * 0.22)                      # bahut chhota text ho to bahut bada na dikhe
+    cap = int(W * 0.22)
     if th > cap:
         tw, th = int(tw * cap / th), cap
     t = t.resize((max(1, tw), max(1, th)), Image.LANCZOS)
