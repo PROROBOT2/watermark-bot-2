@@ -4,6 +4,7 @@ import asyncio
 import io
 import logging
 import os
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -33,15 +34,43 @@ ALLOWED = {int(x) for x in os.getenv("ALLOWED_USERS", "").replace(",", " ").spli
 
 
 # ================================================================ WATERMARK
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _key(name):
+    """Naam ko saaf karo: spaces, dash, dots hata ke chhote letters (extension chhod ke)."""
+    return re.sub(r"[^a-z0-9]", "", os.path.splitext(name)[0].lower())
+
+
+def find_font_file():
+    """WATERMARK_FONT ka naam thoda galat ho (space, capital) tab bhi file dhundh leta hai.
+    Variable na ho to repo mein jo .ttf/.otf mile wahi use hoti hai."""
+    fonts = sorted(f for f in os.listdir(BASE_DIR) if f.lower().endswith((".ttf", ".otf")))
+    if not FONT_FILE:
+        return os.path.join(BASE_DIR, fonts[0]) if fonts else None
+    exact = os.path.join(BASE_DIR, FONT_FILE)
+    if os.path.exists(exact):
+        return exact
+    want = _key(FONT_FILE)
+    for f in fonts:
+        if _key(f) == want:
+            return os.path.join(BASE_DIR, f)
+    for f in fonts:
+        if want and want in _key(f):
+            return os.path.join(BASE_DIR, f)
+    return None
+
+
 def get_font(size=120):
-    if FONT_FILE:
-        if os.path.exists(FONT_FILE):
-            try:
-                return ImageFont.truetype(FONT_FILE, size)
-            except Exception as e:
-                log.warning("Font load nahi hua (%s): %s. Default font use ho raha hai.", FONT_FILE, e)
-        else:
-            log.warning("Font file nahi mili: %s (repo mein upload karo). Default font use ho raha hai.", FONT_FILE)
+    path = find_font_file()
+    if path:
+        try:
+            log.info("Font use ho raha hai: %s", os.path.basename(path))
+            return ImageFont.truetype(path, size)
+        except Exception as e:
+            log.warning("Font load nahi hua (%s): %s. Default font use ho raha hai.", path, e)
+    elif FONT_FILE:
+        log.warning("Font file nahi mili: %s (repo mein upload karo). Default font use ho raha hai.", FONT_FILE)
     return ImageFont.load_default(size=size)
 
 
